@@ -33,8 +33,9 @@ encoder_class_map = {
     "openai-api": OpenAIDocumentEncoder,
     "auto": AutoDocumentEncoder,
 }
+ALLOWED_POOLING_OPTS = ["cls","mean"]
 
-def init_encoder(encoder, encoder_class, device, pooling, l2_norm, prefix):
+def init_encoder(encoder, encoder_class, device):
     _encoder_class = encoder_class
 
     # determine encoder_class
@@ -51,7 +52,6 @@ def init_encoder(encoder, encoder_class, device, pooling, l2_norm, prefix):
         # if none of the class keyword was matched,
         # use the AutoDocumentEncoder
         if encoder_class is None:
-            _encoder_class = "auto"
             encoder_class = AutoDocumentEncoder
 
     # prepare arguments to encoder class
@@ -60,8 +60,6 @@ def init_encoder(encoder, encoder_class, device, pooling, l2_norm, prefix):
         kwargs.update(dict(pooling='mean', l2_norm=True))
     if (_encoder_class == "contriever") or ("contriever" in encoder):
         kwargs.update(dict(pooling='mean', l2_norm=False))
-    if (_encoder_class == "auto"):
-        kwargs.update(dict(pooling=pooling, l2_norm=l2_norm, prefix=prefix))
     return encoder_class(**kwargs)
 
 
@@ -119,16 +117,19 @@ if __name__ == '__main__':
                                 default='cuda:0', required=False)
     encoder_parser.add_argument('--fp16', action='store_true', default=False)
     encoder_parser.add_argument('--add-sep', action='store_true', default=False)
-    encoder_parser.add_argument('--pooling', type=str, default='cls', help='for auto classes, allow the ability to dictate pooling strategy', choices=['cls', 'mean'], required=False)
-    encoder_parser.add_argument('--l2-norm', action='store_true', help='whether to normalize embedding', default=False, required=False)
-    encoder_parser.add_argument('--prefix', type=str, help='prefix of document input', default=None, required=False)
+    encoder_parser.add_argument('--pooling', type=str, default='cls', help='for auto classes, allow the ability to dictate pooling strategy', required=False)
     encoder_parser.add_argument('--use-openai', help='use OpenAI text-embedding-ada-002 to retreive embeddings', action='store_true', default=False)
     encoder_parser.add_argument('--rate-limit', type=int, help='rate limit of the requests per minute for OpenAI embeddings', default=3500, required=False)
 
     args = parse_args(parser, commands)
     delimiter = args.input.delimiter.replace("\\n", "\n")  # argparse would add \ prior to the passed '\n\n'
 
-    encoder = init_encoder(args.encoder.encoder, args.encoder.encoder_class, device=args.encoder.device, pooling=args.encoder.pooling, l2_norm=args.encoder.l2_norm, prefix=args.encoder.prefix)
+    encoder = init_encoder(args.encoder.encoder, args.encoder.encoder_class, device=args.encoder.device)
+    if type(encoder).__name__ == "AutoDocumentEncoder":
+        if args.encoder.pooling in ALLOWED_POOLING_OPTS:
+            encoder.pooling = args.encoder.pooling
+        else:
+            raise ValueError(f"Only allowed to use pooling types {ALLOWED_POOLING_OPTS}. You entered {args.encoder.pooling}")
     if args.output.to_faiss:
         embedding_writer = FaissRepresentationWriter(args.output.embeddings, dimension=args.encoder.dimension)
     else:
